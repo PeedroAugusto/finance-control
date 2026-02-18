@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
-import { logo } from '../../../assets/Logo-Aberta.png';
+import  logo from '../../../assets/Logo-Aberta.png';
 const links = [
   { to: '/', label: 'Dashboard' },
   { to: '/contas', label: 'Contas' },
