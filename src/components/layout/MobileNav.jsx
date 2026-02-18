@@ -38,7 +38,7 @@ export function MobileNav() {
         <div className="flex shrink-0 items-center justify-between border-b border-slate-700/50 p-4">
           <div className="flex min-h-[3rem] items-center gap-3 overflow-visible">
             <img
-              src="/assets/Logo-Aberta.png"
+              src={`${import.meta.env.BASE_URL}assets/Logo-Aberta.png`}
               alt="Vellun"
               className="relative h-24 w-auto object-contain"
               style={{ left: '-24px' }}
