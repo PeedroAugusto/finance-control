@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
-
+import { logo } from '../../../assets/Logo-Aberta.png';
 const links = [
   { to: '/', label: 'Dashboard' },
   { to: '/contas', label: 'Contas' },
@@ -38,7 +38,7 @@ export function MobileNav() {
         <div className="flex shrink-0 items-center justify-between border-b border-slate-700/50 p-4">
           <div className="flex min-h-[3rem] items-center gap-3 overflow-visible">
             <img
-              src={`${import.meta.env.BASE_URL}assets/Logo-Aberta.png`}
+              src={logo}
               alt="Vellun"
               className="relative h-24 w-auto object-contain"
               style={{ left: '-24px' }}

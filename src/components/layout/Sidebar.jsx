@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore.js';
-
+import logo from '../../../assets/Logo-Aberta.png';
 const links = [
   { to: '/', label: 'Dashboard' },
   { to: '/contas', label: 'Contas' },
@@ -51,7 +51,7 @@ export function Sidebar() {
     <aside className="hidden h-full w-64 shrink-0 flex-col bg-slate-800 md:flex">
       <div className="flex min-h-16 items-center overflow-visible border-b border-slate-700/50 px-5 py-3">
         <img
-          src={`${import.meta.env.BASE_URL}assets/Logo-Aberta.png`}
+          src={logo}
           alt="Vellun"
           className="relative h-40 w-auto object-contain"
           style={{ left: '-60px',
