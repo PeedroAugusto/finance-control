@@ -79,7 +79,19 @@ export function CreditCards() {
       </p>
 
       {loading ? (
-        <p className="text-slate-500">Carregando...</p>
+        <div className="space-y-4">
+          <div className="skeleton h-8 w-48" />
+          <div className="skeleton h-4 w-full max-w-md" />
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <li key={i} className="rounded-2xl border border-slate-200/50 bg-white p-5 shadow-sm">
+                <div className="skeleton h-5 w-32" />
+                <div className="mt-2 skeleton h-4 w-40" />
+                <div className="mt-3 skeleton h-4 w-24" />
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : cards.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center text-slate-500">
           Nenhum cartão. Clique em <strong>Novo cartão</strong> para cadastrar.

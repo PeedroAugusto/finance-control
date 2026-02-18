@@ -51,8 +51,22 @@ export function CreateWorkspace() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100">
-        <div className="text-slate-600">Carregando...</div>
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+        <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow">
+          <div className="skeleton mb-4 h-7 w-48" />
+          <ul className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <li key={i}>
+                <div className="skeleton h-10 w-full rounded-lg" />
+              </li>
+            ))}
+          </ul>
+          <div className="mt-4 skeleton h-4 w-40" />
+          <div className="mt-4 flex gap-2">
+            <div className="skeleton h-10 flex-1 rounded-lg" />
+            <div className="skeleton h-10 w-24 rounded-lg" />
+          </div>
+        </div>
       </div>
     );
   }

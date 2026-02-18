@@ -681,7 +681,7 @@ export function Transactions() {
       </p>
 
       {accounts.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+        <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4 transition-all duration-300 ease-out">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-slate-600">Período:</span>
             <Select
@@ -732,7 +732,28 @@ export function Transactions() {
       )}
 
       {loading ? (
-        <p className="text-slate-500">Carregando...</p>
+        <div className="space-y-4">
+          <div className="skeleton mb-4 h-10 w-64 rounded-xl" />
+          <div className="card overflow-hidden">
+            <div className="border-b border-slate-100 bg-slate-50/50 px-4 py-3 md:px-6">
+              <div className="skeleton h-4 w-40" />
+            </div>
+            <div className="divide-y divide-slate-100 p-4 md:px-6">
+              {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                <div key={i} className="flex items-center justify-between gap-4 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="skeleton h-9 w-9 shrink-0 rounded-lg" />
+                    <div className="space-y-1">
+                      <div className="skeleton h-4 w-44" />
+                      <div className="skeleton h-3 w-24 md:hidden" />
+                    </div>
+                  </div>
+                  <div className="skeleton h-5 w-20 shrink-0" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       ) : accounts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-amber-50/50 p-8 text-center text-slate-600">
           Crie pelo menos uma <strong>conta</strong> na aba Contas para poder registrar transações.

@@ -59,17 +59,17 @@ export function Sidebar() {
             margin: '-58px 0px -60px 0px' }}
         />
       </div>
-      <nav className="flex flex-1 flex-col gap-1 p-3">
+      <nav className="flex flex-1 flex-col gap-0.5 p-3">
         {links.map(({ to, label }) => (
           <NavLink
             key={to}
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+              `flex items-center gap-3 rounded-[5px] border-l-2 px-3 py-2 text-sm font-medium transition-all duration-200 ${
                 isActive
-                  ? 'bg-sky-500/25 text-sky-200 shadow-inner'
-                  : 'text-slate-400 hover:bg-slate-700/60 hover:text-slate-100'
+                  ? 'border-sky-400 bg-sky-500/35 text-sky-100 shadow-inner'
+                  : 'border-transparent text-slate-400 hover:bg-slate-700/60 hover:text-slate-100'
               }`
             }
           >
@@ -82,7 +82,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-400 transition hover:bg-slate-700/60 hover:text-slate-100"
+          className="flex w-full items-center gap-3 rounded-[5px] border-l-2 border-transparent px-3 py-2 text-sm font-medium text-slate-400 transition-all duration-200 hover:bg-slate-700/60 hover:text-slate-100"
         >
           <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

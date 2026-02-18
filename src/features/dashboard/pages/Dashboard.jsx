@@ -10,7 +10,7 @@ import { Select } from '../../../components/ui/Select.jsx';
 import { formatCurrency } from '../../../utils/currency.js';
 import { startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 const CHART_COLORS = ['#0ea5e9', '#38bdf8', '#7dd3fc', '#06b6d4', '#22d3ee', '#67e8f9', '#6366f1', '#818cf8', '#a5b4fc', '#c4b5fd'];
 
@@ -102,6 +102,7 @@ export function Dashboard() {
   const [cardExpensesByCategory, setCardExpensesByCategory] = useState([]);
   const [cardExpensesByCard, setCardExpensesByCard] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [balanceEvolution, setBalanceEvolution] = useState([]);
 
   useEffect(() => {
     if (!current?.id) return;
@@ -171,15 +172,53 @@ export function Dashboard() {
           Object.entries(cardOnlyByCard).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
         );
         setRecentTx(txsRecent.slice(0, 5));
+
+        const balanceStart = total - income + expense;
+        const sorted = [...txsPeriod].sort((a, b) => (a.date?.getTime?.() ?? 0) - (b.date?.getTime?.() ?? 0));
+        const evolution = [{ date: format(start, 'dd/MM'), balance: balanceStart }];
+        let running = balanceStart;
+        sorted.forEach((t) => {
+          const amt = toNumberReais(t.amount);
+          if (t.type === 'income' || t.type === 'yield') running += amt;
+          else if (t.type === 'expense' || t.type === 'investment') running -= amt;
+          const d = t.date instanceof Date ? t.date : new Date(t.date);
+          evolution.push({ date: format(d, 'dd/MM'), balance: running });
+        });
+        if (evolution.length === 1) evolution.push({ date: format(end, 'dd/MM'), balance: total });
+        setBalanceEvolution(evolution);
       })
       .finally(() => setLoading(false));
   }, [current?.id, period, categoryFilter]);
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20">
-        <div className="h-11 w-11 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
-        <p className="text-sm font-medium text-slate-500">Carregando dashboard...</p>
+      <div className="space-y-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="skeleton h-9 w-48" />
+            <div className="mt-2 h-4 w-56 skeleton" />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white/80 p-4 shadow-sm ring-1 ring-slate-200/60 transition-opacity duration-300">
+          <div className="skeleton h-4 w-16" />
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="skeleton h-10 w-40 rounded-xl" />
+            <div className="skeleton h-10 w-44 rounded-xl" />
+          </div>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="overflow-hidden rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm">
+              <div className="skeleton mb-2 h-3 w-24" />
+              <div className="skeleton h-8 w-28" />
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="skeleton h-80 rounded-2xl lg:col-span-2" />
+          <div className="skeleton h-80 rounded-2xl" />
+        </div>
+        <div className="skeleton h-64 rounded-2xl" />
       </div>
     );
   }
@@ -202,9 +241,9 @@ export function Dashboard() {
         </Link>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white/80 p-4 shadow-[var(--shadow-card)] ring-1 ring-slate-200/60 backdrop-blur-sm">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white/80 p-4 shadow-[var(--shadow-card)] ring-1 ring-slate-200/60 backdrop-blur-sm transition-all duration-300 ease-out">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Filtros</span>
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4 transition-opacity duration-200">
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-slate-600">Período</label>
             <Select
@@ -226,6 +265,8 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+    
 
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card card-hover overflow-hidden p-6 ring-1 ring-slate-200/50">
@@ -283,7 +324,23 @@ export function Dashboard() {
           </div>
         </div>
       </div>
-
+      {balanceEvolution.length > 0 && (
+        <div className="card card-hover p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Evolução do saldo</h2>
+          <p className="mt-0.5 text-sm text-slate-500">Saldo ao longo do período</p>
+          <div className="mt-6 h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={balanceEvolution} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                <YAxis tickFormatter={(v) => (v / 1000).toFixed(0) + 'k'} tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                <Tooltip formatter={(value) => formatCurrency(value)} labelFormatter={(label) => label} />
+                <Line type="monotone" dataKey="balance" stroke="#0ea5e9" strokeWidth={2} dot={{ fill: '#0ea5e9', r: 3 }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="card card-hover p-6 lg:col-span-2">
           <div className="flex items-baseline justify-between gap-4">

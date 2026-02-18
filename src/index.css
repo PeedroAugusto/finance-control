@@ -37,11 +37,16 @@
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-slate-200/70 bg-white shadow-[var(--shadow-card)] transition-shadow duration-200;
+    @apply rounded-2xl border border-slate-200/70 bg-white shadow-[var(--shadow-card)];
+    @apply transition-all duration-300 ease-out;
   }
 
   .card-hover {
-    @apply hover:shadow-[var(--shadow-card-hover)] hover:border-slate-200;
+    @apply hover:shadow-[var(--shadow-card-hover)] hover:border-slate-200 hover:scale-[1.02] hover:-translate-y-0.5;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded-xl bg-slate-200/80;
   }
 
   .card-glass {
