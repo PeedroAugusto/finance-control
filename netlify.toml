@@ -1,0 +1,10 @@
+# Build do projeto (Vite + React)
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA: todas as rotas (/transacoes, /contas, etc.) servem o index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// Controle Financeiro - regras que o app precisa
+// workspaces + subcoleções (members, accounts, etc.) e users/{uid}/workspaceIds
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Workspace: qualquer usuário autenticado pode criar; depois só membros (via subcoleção)
+    match /workspaces/{workspaceId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Subcoleção members - necessária ao criar workspace e ao listar membros
+    match /workspaces/{workspaceId}/members/{memberId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Subcoleções do workspace (contas, categorias, transações, cartões, convites)
+    match /workspaces/{workspaceId}/accounts/{accountId} {
+      allow read, write: if request.auth != null;
+    }
+    match /workspaces/{workspaceId}/categories/{categoryId} {
+      allow read, write: if request.auth != null;
+    }
+    match /workspaces/{workspaceId}/creditCards/{cardId} {
+      allow read, write: if request.auth != null;
+    }
+    match /workspaces/{workspaceId}/creditCards/{cardId}/purchases/{purchaseId} {
+      allow read, write: if request.auth != null;
+    }
+    match /workspaces/{workspaceId}/creditCards/{cardId}/purchases/{purchaseId}/installments/{installmentId} {
+      allow read, write: if request.auth != null;
+    }
+    match /workspaces/{workspaceId}/transactions/{transactionId} {
+      allow read, write: if request.auth != null;
+    }
+    match /workspaces/{workspaceId}/invitations/{invitationId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Lista de workspaces do usuário (users/uid/workspaceIds/workspaceId)
+    // Sem isso o app não consegue listar "meus workspaces"
+    match /users/{userId}/workspaceIds/{workspaceId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
