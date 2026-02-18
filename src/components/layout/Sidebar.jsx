@@ -49,8 +49,15 @@ export function Sidebar() {
 
   return (
     <aside className="hidden h-full w-64 shrink-0 flex-col bg-slate-800 md:flex">
-      <div className="flex h-16 items-center border-b border-slate-700/50 px-5">
-        <span className="text-lg font-bold tracking-tight text-white">Controle Financeiro</span>
+      <div className="flex min-h-16 items-center overflow-visible border-b border-slate-700/50 px-5 py-3">
+        <img
+          src="/assets/Logo-Aberta.png"
+          alt="Vellun"
+          className="relative h-40 w-auto object-contain"
+          style={{ left: '-60px',
+            height: '170px',
+            margin: '-58px 0px -60px 0px' }}
+        />
       </div>
       <nav className="flex flex-1 flex-col gap-1 p-3">
         {links.map(({ to, label }) => (

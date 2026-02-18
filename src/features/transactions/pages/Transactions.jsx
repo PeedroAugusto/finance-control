@@ -121,6 +121,7 @@ export function Transactions() {
   const [periodFilter, setPeriodFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [createStep, setCreateStep] = useState(1);
   const createIntentRef = useRef(false);
   const [expandedInstallmentGroups, setExpandedInstallmentGroups] = useState(() => new Set());
@@ -425,6 +426,29 @@ export function Transactions() {
     ...installmentGroups.map((g) => ({ type: 'group', ...g })),
   ].sort((a, b) => (b.sortDate || 0) - (a.sortDate || 0));
 
+  const searchLower = searchQuery.trim().toLowerCase();
+  const filteredDisplayItems = searchLower
+    ? displayItems.filter((item) => {
+        if (item.type === 'standalone') {
+          const text = (item.transaction.description || TYPE_LABELS[item.transaction.type] || '').toLowerCase();
+          return text.includes(searchLower);
+        }
+        const text = (item.baseDescription || 'Parcelado').toLowerCase();
+        return text.includes(searchLower);
+      })
+    : displayItems;
+
+  const totalFiltered = filteredDisplayItems.reduce((sum, item) => {
+    if (item.type === 'standalone') {
+      const tx = item.transaction;
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'income' || tx.type === 'yield') return sum + amt;
+      if (tx.type === 'expense' || tx.type === 'investment') return sum - amt;
+      return sum;
+    }
+    return sum - (Number(item.totalAmount) || 0);
+  }, 0);
+
   const toggleInstallmentGroup = (purchaseId) => {
     setExpandedInstallmentGroups((prev) => {
       const next = new Set(prev);
@@ -685,6 +709,25 @@ export function Transactions() {
               className="min-w-[140px]"
             />
           </div>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label htmlFor="tx-search" className="sr-only">Buscar por nome ou descrição</label>
+              <Input
+                id="tx-search"
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar por nome ou descrição"
+                className="min-w-[200px] max-w-[280px]"
+              />
+            </div>
+            <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200/60">
+              <span className="text-sm font-medium text-slate-600">Total (filtro):</span>
+              <span className={`font-semibold tabular-nums ${totalFiltered >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {totalFiltered >= 0 ? '+' : ''}{formatCurrency(totalFiltered)}
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -698,16 +741,16 @@ export function Transactions() {
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center text-slate-500">
           Nenhuma transação. Clique em <strong>Nova transação</strong> para registrar.
         </div>
-      ) : filteredTransactions.length === 0 ? (
+      ) : filteredDisplayItems.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center text-slate-500">
-          Nenhuma transação corresponde aos filtros. Tente outro período, categoria ou tipo.
+          Nenhuma transação corresponde aos filtros. Tente outro período, categoria, tipo ou busca.
         </div>
       ) : (
         <div className="card overflow-hidden">
           <div className="border-b border-slate-100 bg-slate-50/50 px-4 py-3 md:px-6">
             <p className="text-sm font-medium text-slate-600">
-              {filteredTransactions.length} {filteredTransactions.length === 1 ? 'transação' : 'transações'}
-              {(categoryFilter || typeFilter || periodFilter !== 'all') && ' (filtradas)'}
+              {filteredDisplayItems.length} {filteredDisplayItems.length === 1 ? 'transação' : 'transações'}
+              {(categoryFilter || typeFilter || periodFilter !== 'all' || searchQuery.trim()) && ' (filtradas)'}
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -723,7 +766,7 @@ export function Transactions() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {displayItems.map((item) => {
+                {filteredDisplayItems.map((item) => {
                   if (item.type === 'standalone') {
                     const tx = item.transaction;
                     return (

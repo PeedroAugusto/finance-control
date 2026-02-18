@@ -32,11 +32,19 @@ export function MobileNav() {
         onClick={() => setOpen(false)}
       />
       <nav
-        className="fixed left-0 top-0 z-[101] flex h-full w-72 max-w-[85vw] flex-col border-r border-slate-700 bg-slate-800 p-4 shadow-2xl"
+        className="fixed left-0 top-0 z-[101] flex h-full w-72 max-w-[85vw] flex-col border-r border-slate-700 bg-slate-800 shadow-2xl"
         aria-label="Menu principal"
       >
-        <div className="mb-6 flex items-center justify-between">
-          <span className="text-lg font-semibold text-white">Menu</span>
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-700/50 p-4">
+          <div className="flex min-h-[3rem] items-center gap-3 overflow-visible">
+            <img
+              src="/assets/Logo-Aberta.png"
+              alt="Vellun"
+              className="relative h-24 w-auto object-contain"
+              style={{ left: '-24px' }}
+            />
+            <span className="text-lg font-semibold text-white">Menu</span>
+          </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
@@ -48,7 +56,7 @@ export function MobileNav() {
             </svg>
           </button>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-1 flex-col gap-1 overflow-auto p-4">
           {links.map(({ to, label }) => (
             <NavLink
               key={to}
