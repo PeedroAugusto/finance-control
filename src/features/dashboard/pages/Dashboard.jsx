@@ -50,6 +50,102 @@ function getPeriodLabel(period) {
   return PERIOD_OPTIONS.find((p) => p.value === period)?.label ?? 'Este mês';
 }
 
+/** Categorias consideradas despesas fixas para o indicador de saúde. */
+const FIXED_CATEGORY_NAMES = new Set(['Moradia', 'Planos', 'Transporte', 'Educação', 'Saúde']);
+
+/**
+ * Calcula score de saúde financeira com base em % gasto/renda, cartão, investido e despesas fixas.
+ * Status: critical (0-40), attention (41-70), healthy (71-90), excellent (91-100)
+ * @returns {{ status: string, score: number, metrics: Object }}
+ */
+function computeHealthScore(income, expense, cardTotal, investmentTotal, fixedExpenseTotal) {
+  if (!income || income <= 0) {
+    return { status: 'attention', score: 50, metrics: { pctExpense: 0, pctCard: 0, pctInvested: 0, pctFixed: 0 } };
+  }
+  const pctExpense = (expense / income) * 100;
+  const pctCard = (cardTotal / income) * 100;
+  const pctInvested = (investmentTotal / income) * 100;
+  const pctFixed = (fixedExpenseTotal / income) * 100;
+
+  const scoreExpense = pctExpense <= 55 ? 100 : pctExpense <= 75 ? 50 : pctExpense <= 90 ? 20 : 0;
+  const scoreCard = pctCard <= 25 ? 100 : pctCard <= 40 ? 50 : pctCard <= 55 ? 25 : 0;
+  const scoreInvested = pctInvested >= 15 ? 100 : pctInvested >= 10 ? 80 : pctInvested >= 5 ? 50 : pctInvested > 0 ? 30 : 10;
+  const scoreFixed = pctFixed <= 50 ? 100 : pctFixed <= 65 ? 50 : pctFixed <= 80 ? 25 : 0;
+
+  const weights = { expense: 0.3, card: 0.25, invested: 0.25, fixed: 0.2 };
+  const score = Math.round(
+    scoreExpense * weights.expense +
+      scoreCard * weights.card +
+      scoreInvested * weights.invested +
+      scoreFixed * weights.fixed
+  );
+
+  let status = 'healthy';
+  if (score <= 40) status = 'critical';
+  else if (score <= 70) status = 'attention';
+  else if (score <= 90) status = 'healthy';
+  else status = 'excellent';
+
+  return {
+    status,
+    score: Math.min(100, Math.max(0, score)),
+    metrics: {
+      pctExpense: Math.round(pctExpense * 10) / 10,
+      pctCard: Math.round(pctCard * 10) / 10,
+      pctInvested: Math.round(pctInvested * 10) / 10,
+      pctFixed: Math.round(pctFixed * 10) / 10,
+    },
+  };
+}
+
+/**
+ * Gera texto explicativo e recomendação com base no score e métricas.
+ */
+function getHealthInsight(health) {
+  const { status, score, metrics } = health;
+  const { pctExpense, pctCard, pctInvested, pctFixed } = metrics;
+  const insights = [];
+  const recommendations = [];
+
+  if (pctExpense <= 50) {
+    insights.push(`Você está gastando apenas ${pctExpense}% da sua renda.`);
+  } else if (pctExpense <= 65) {
+    insights.push(`Gastos em ${pctExpense}% da renda.`);
+  } else if (pctExpense > 70) {
+    insights.push(`Gastos em ${pctExpense}% da renda — acima do ideal.`);
+    recommendations.push('Reduza gastos ou busque fontes extras de renda.');
+  }
+
+  if (pctInvested >= 15) {
+    insights.push(`Investindo ${pctInvested}% da renda.`);
+  } else if (pctInvested >= 5 && pctInvested < 15) {
+    insights.push(`Investimentos em ${pctInvested}% — pode melhorar.`);
+    if (status === 'attention' || status === 'critical') recommendations.push('Tente reservar ao menos 10% da renda para investimentos.');
+  } else if (pctInvested < 5 && pctInvested > 0) {
+    insights.push(`Investimentos baixos (${pctInvested}%).`);
+    recommendations.push('Comece reservando 5–10% da renda mensalmente.');
+  } else {
+    recommendations.push('Comece a investir parte da renda para o futuro.');
+  }
+
+  if (pctCard > 35) {
+    insights.push(`Cartão em ${pctCard}% da renda.`);
+    recommendations.push('Evite depender do cartão; prefira débito quando possível.');
+  } else if (pctCard <= 25 && pctCard > 0) {
+    insights.push(`Uso moderado do cartão (${pctCard}%).`);
+  }
+
+  if (pctFixed > 65) {
+    insights.push(`Despesas fixas em ${pctFixed}% da renda.`);
+    recommendations.push('Revise assinaturas e custos fixos para aumentar margem.');
+  }
+
+  const explanation = insights.length > 0 ? insights.join(' ') : 'Analise suas métricas para entender o score.';
+  const recommendation = recommendations.length > 0 ? recommendations[0] : (score >= 71 ? 'Continue mantendo o controle das finanças.' : 'Faça pequenos ajustes para melhorar.');
+
+  return { explanation, recommendation };
+}
+
 /** Converte valor (número ou string "47,03" / "47.032,86" / "47032.86") para número em reais. */
 function toNumberReais(value) {
   if (value == null) return 0;
@@ -103,6 +199,14 @@ export function Dashboard() {
   const [cardExpensesByCard, setCardExpensesByCard] = useState([]);
   const [categories, setCategories] = useState([]);
   const [balanceEvolution, setBalanceEvolution] = useState([]);
+  const [healthScore, setHealthScore] = useState(null);
+  const [healthCardCollapsed, setHealthCardCollapsed] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('finance-health-card-collapsed') ?? 'false');
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (!current?.id) return;
@@ -186,6 +290,24 @@ export function Dashboard() {
         });
         if (evolution.length === 1) evolution.push({ date: format(end, 'dd/MM'), balance: total });
         setBalanceEvolution(evolution);
+
+        let investmentTotal = 0;
+        let fixedExpenseTotal = 0;
+        let healthExpense = 0;
+        let healthCardTotal = 0;
+        txsPeriod.forEach((t) => {
+          const amt = toNumberReais(t.amount);
+          const catName = cats.find((c) => c.id === t.categoryId)?.name || 'Outros';
+          if (t.type === 'investment') {
+            investmentTotal += amt;
+          } else if (t.type === 'expense') {
+            healthExpense += amt;
+            if (FIXED_CATEGORY_NAMES.has(catName)) fixedExpenseTotal += amt;
+            if (t.creditCardId) healthCardTotal += amt;
+          }
+        });
+        const health = computeHealthScore(income, healthExpense, healthCardTotal, investmentTotal, fixedExpenseTotal);
+        setHealthScore(health);
       })
       .finally(() => setLoading(false));
   }, [current?.id, period, categoryFilter]);
@@ -206,6 +328,7 @@ export function Dashboard() {
             <div className="skeleton h-10 w-44 rounded-xl" />
           </div>
         </div>
+        <div className="skeleton h-24 w-full rounded-2xl" />
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="overflow-hidden rounded-2xl border border-slate-200/50 bg-white p-6 shadow-sm">
@@ -266,7 +389,119 @@ export function Dashboard() {
         </div>
       </div>
 
-    
+      {healthScore && (() => {
+        const STATUS_CONFIG = {
+          critical: { label: 'Crítico', emoji: '🔴', bg: 'bg-rose-50/50', border: 'ring-rose-200/50', circle: 'stroke-rose-500', text: 'text-rose-700' },
+          attention: { label: 'Atenção', emoji: '🟡', bg: 'bg-amber-50/50', border: 'ring-amber-200/50', circle: 'stroke-amber-500', text: 'text-amber-700' },
+          healthy: { label: 'Saudável', emoji: '🟢', bg: 'bg-emerald-50/50', border: 'ring-emerald-200/50', circle: 'stroke-emerald-500', text: 'text-emerald-700' },
+          excellent: { label: 'Excelente', emoji: '🟣', bg: 'bg-violet-50/50', border: 'ring-violet-200/50', circle: 'stroke-violet-500', text: 'text-violet-700' },
+        };
+        const config = STATUS_CONFIG[healthScore.status] || STATUS_CONFIG.attention;
+        const insight = getHealthInsight(healthScore);
+        const circumference = 2 * Math.PI * 54;
+        const strokeDashoffset = circumference - (healthScore.score / 100) * circumference;
+
+        const handleToggle = () => {
+          const next = !healthCardCollapsed;
+          setHealthCardCollapsed(next);
+          try {
+            localStorage.setItem('finance-health-card-collapsed', JSON.stringify(next));
+          } catch {}
+        };
+
+        if (healthCardCollapsed) {
+          const c = 2 * Math.PI * 18;
+          const off = c - (healthScore.score / 100) * c;
+          return (
+            <button
+              type="button"
+              onClick={handleToggle}
+              className={`card card-hover flex w-full items-center justify-between gap-4 p-4 ring-2 text-left ${config.bg} ${config.border}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="relative h-14 w-14 shrink-0">
+                  <svg className="h-14 w-14 -rotate-90" viewBox="0 0 48 48">
+                    <circle cx="24" cy="24" r="18" fill="none" stroke="currentColor" strokeWidth="5" className="text-slate-200" />
+                    <circle cx="24" cy="24" r="18" fill="none" strokeWidth="5" strokeLinecap="round" className={config.circle} style={{ strokeDasharray: c, strokeDashoffset: off }} />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-lg font-bold tabular-nums text-slate-900">{healthScore.score}</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{config.emoji}</span>
+                    <span className="font-semibold text-slate-900">{config.label}</span>
+                  </div>
+                  <div className="mt-1 flex gap-4 text-xs text-slate-500">
+                    <span>Gasto {healthScore.metrics.pctExpense}%</span>
+                    <span>Cartão {healthScore.metrics.pctCard}%</span>
+                    <span>Investido {healthScore.metrics.pctInvested}%</span>
+                    <span>Fixas {healthScore.metrics.pctFixed}%</span>
+                  </div>
+                </div>
+              </div>
+              <span className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100/80 hover:text-slate-600" aria-hidden title="Expandir">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              </span>
+            </button>
+          );
+        }
+
+        return (
+          <div className={`card overflow-hidden ring-2 ${config.bg} ${config.border}`}>
+            <div className="flex items-center justify-between px-8 pt-6">
+              <h2 className="text-lg font-semibold text-slate-900">Saúde financeira</h2>
+              <button
+                type="button"
+                onClick={handleToggle}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100/80 hover:text-slate-600"
+                title="Recolher"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+              </button>
+            </div>
+            <div className="flex flex-col gap-8 p-8 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col items-start gap-6 sm:flex-row sm:items-center">
+                <div className="relative flex h-36 w-36 shrink-0">
+                  <svg className="h-36 w-36 -rotate-90" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" strokeWidth="10" className="text-slate-200" />
+                    <circle
+                      cx="60"
+                      cy="60"
+                      r="54"
+                      fill="none"
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                      className={`${config.circle} transition-[stroke-dashoffset] duration-700 ease-out`}
+                      style={{ strokeDasharray: circumference, strokeDashoffset }}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-3xl font-bold tabular-nums text-slate-900">{healthScore.score}</span>
+                    <span className="text-sm font-medium text-slate-500">/100</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{config.emoji}</span>
+                    <h2 className="text-xl font-bold text-slate-900">{config.label}</h2>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">Score combinado de gasto/renda, cartão, investido e despesas fixas.</p>
+                  <p className="mt-3 text-base text-slate-600">{insight.explanation}</p>
+                  <p className={`mt-2 text-sm font-medium ${config.text}`}>💡 {insight.recommendation}</p>
+                  <div className="mt-4 flex flex-wrap gap-4 text-sm">
+                    <span className="text-slate-500">Gasto/renda <strong className="text-slate-700">{healthScore.metrics.pctExpense}%</strong></span>
+                    <span className="text-slate-500">Cartão <strong className="text-slate-700">{healthScore.metrics.pctCard}%</strong></span>
+                    <span className="text-slate-500">Investido <strong className="text-slate-700">{healthScore.metrics.pctInvested}%</strong></span>
+                    <span className="text-slate-500">Fixas <strong className="text-slate-700">{healthScore.metrics.pctFixed}%</strong></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card card-hover overflow-hidden p-6 ring-1 ring-slate-200/50">

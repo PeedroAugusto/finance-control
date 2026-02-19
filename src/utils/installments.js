@@ -18,7 +18,8 @@ function setDayOfMonth(date, day) {
 
 /**
  * Gera a data de vencimento da parcela N (1-based), considerando dueDay do cartão.
- * Usa dia 1 do mês da compra para evitar bug: compra dia 31 + 2 meses vira "31/fev" → março (pula fevereiro).
+ * Parcela 1 = mês da compra, parcela 2 = mês seguinte, etc.
+ * Usa dia 1 do mês para evitar bug: compra dia 31 + N meses vira "31/fev" → março (pula fevereiro).
  * @param {Date} purchaseDate - Data da compra
  * @param {number} installmentNumber - Número da parcela (1, 2, 3...)
  * @param {number} dueDay - Dia do vencimento da fatura (1-31)
@@ -26,7 +27,7 @@ function setDayOfMonth(date, day) {
  */
 export function getInstallmentDueDate(purchaseDate, installmentNumber, dueDay) {
   const d = new Date(purchaseDate.getFullYear(), purchaseDate.getMonth(), 1);
-  d.setMonth(d.getMonth() + installmentNumber);
+  d.setMonth(d.getMonth() + (installmentNumber - 1));
   return setDayOfMonth(d, dueDay);
 }
 
