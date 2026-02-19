@@ -116,7 +116,7 @@ export async function getTransactionsUpToEnd(workspaceId, endDate) {
  * Cria transação e atualiza saldo da(s) conta(s).
  * @param {string} workspaceId
  * @param {string} userId
- * @param {{ type: string, amount: number, accountId: string, targetAccountId?: string, categoryId?: string, creditCardId?: string, description?: string, date: Date, isRecurring?: boolean, recurrenceFrequency?: string, skipBalanceUpdate?: boolean }}
+ * @param {{ type: string, amount: number, accountId: string, targetAccountId?: string, categoryId?: string, creditCardId?: string, description?: string, date: Date, isRecurring?: boolean, recurrenceFrequency?: string, recurringSourceId?: string, skipBalanceUpdate?: boolean }}
  */
 export async function createTransaction(workspaceId, userId, data) {
   const amount = Math.abs(Number(data.amount)) || 0;
@@ -142,6 +142,7 @@ export async function createTransaction(workspaceId, userId, data) {
     installmentNumber: data.installmentNumber ?? null,
     isRecurring: data.isRecurring === true,
     recurrenceFrequency: data.recurrenceFrequency || null,
+    recurringSourceId: data.recurringSourceId || null,
     appliedToBalance: !skipBalance && !isFuture,
     createdAt: serverTimestamp(),
     createdBy: userId,
@@ -225,6 +226,73 @@ export async function createInstallmentTransactions(workspaceId, userId, params)
 function startOfDayLocal(d) {
   const x = d instanceof Date ? d : new Date(d);
   return new Date(x.getFullYear(), x.getMonth(), x.getDate());
+}
+
+/**
+ * Gera automaticamente as instâncias mensais das transações recorrentes (ex.: salário todo dia 10).
+ * Cria uma transação real por mês, a partir do mês da transação modelo até o mês atual, se a data já passou.
+ * @param {string} workspaceId
+ * @param {string} userId
+ */
+export async function ensureRecurringInstances(workspaceId, userId) {
+  const allTxs = await getTransactions(workspaceId, { limitCount: 2000 });
+  const templates = allTxs.filter((t) => t.isRecurring === true && !t.recurringSourceId);
+  if (templates.length === 0) return;
+
+  const toTs = (t) => (t.date?.getTime?.() ?? new Date(t.date).getTime());
+  const yearMonth = (d) => {
+    const x = d instanceof Date ? d : new Date(d);
+    return `${x.getFullYear()}-${x.getMonth()}`;
+  };
+  const lastDayOfMonth = (y, m) => new Date(y, m + 1, 0).getDate();
+
+  const existingByTemplate = {};
+  allTxs.forEach((t) => {
+    const sourceId = t.recurringSourceId || t.id;
+    if (!existingByTemplate[sourceId]) existingByTemplate[sourceId] = new Set();
+    existingByTemplate[sourceId].add(yearMonth(t.date));
+  });
+
+  const now = new Date();
+  for (const template of templates) {
+    if (template.recurrenceFrequency !== 'monthly') continue;
+
+    const templateDate = new Date(template.date);
+    const dayOfMonth = templateDate.getDate();
+    const startYear = templateDate.getFullYear();
+    const startMonth = templateDate.getMonth();
+    const endYear = now.getFullYear();
+    const endMonth = now.getMonth();
+
+    const existing = existingByTemplate[template.id] || new Set();
+
+    for (let y = startYear; y <= endYear; y++) {
+      const monthStart = y === startYear ? startMonth : 0;
+      const monthEnd = y === endYear ? endMonth : 11;
+      for (let m = monthStart; m <= monthEnd; m++) {
+        const key = `${y}-${m}`;
+        if (existing.has(key)) continue;
+
+        const lastDay = lastDayOfMonth(y, m);
+        const day = Math.min(dayOfMonth, lastDay);
+        const instanceDate = new Date(y, m, day);
+        if (instanceDate.getTime() > now.getTime()) continue;
+
+        await createTransaction(workspaceId, userId, {
+          type: template.type,
+          amount: template.amount,
+          accountId: template.accountId,
+          targetAccountId: template.targetAccountId || undefined,
+          categoryId: template.categoryId || undefined,
+          description: template.description || undefined,
+          date: instanceDate,
+          recurringSourceId: template.id,
+          skipBalanceUpdate: false,
+        });
+        existing.add(key);
+      }
+    }
+  }
 }
 
 /**

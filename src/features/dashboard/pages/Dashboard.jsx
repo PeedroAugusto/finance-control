@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useWorkspaceStore } from '../../../store/workspaceStore.js';
+import { useAuthStore } from '../../../store/authStore.js';
 import { getAccounts } from '../../../api/firestore/accounts.js';
-import { getTransactions, getTransactionsUpToEnd, applyPendingTransactions } from '../../../api/firestore/transactions.js';
+import { getTransactions, getTransactionsUpToEnd, applyPendingTransactions, ensureRecurringInstances } from '../../../api/firestore/transactions.js';
 import { getCategories } from '../../../api/firestore/categories.js';
 import { getCreditCards } from '../../../api/firestore/creditCards.js';
 import { Button } from '../../../components/ui/Button.jsx';
@@ -10,7 +11,7 @@ import { Select } from '../../../components/ui/Select.jsx';
 import { formatCurrency } from '../../../utils/currency.js';
 import { startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, LineChart, Line, Area, AreaChart, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
 
 const CHART_COLORS = ['#0ea5e9', '#38bdf8', '#7dd3fc', '#06b6d4', '#22d3ee', '#67e8f9', '#6366f1', '#818cf8', '#a5b4fc', '#c4b5fd'];
 
@@ -186,6 +187,7 @@ function computeBalanceAtEnd(accounts, transactionsUpToEnd) {
 
 export function Dashboard() {
   const { current } = useWorkspaceStore();
+  const { user } = useAuthStore();
   const [period, setPeriod] = useState('this_month');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [loading, setLoading] = useState(true);
@@ -202,11 +204,13 @@ export function Dashboard() {
   const [healthScore, setHealthScore] = useState(null);
   const [healthCardCollapsed, setHealthCardCollapsed] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('finance-health-card-collapsed') ?? 'false');
+      const stored = localStorage.getItem('finance-health-card-collapsed');
+      return stored !== null ? JSON.parse(stored) : true;
     } catch {
-      return false;
+      return true;
     }
   });
+  const [expandedChart, setExpandedChart] = useState(null);
 
   useEffect(() => {
     if (!current?.id) return;
@@ -214,19 +218,26 @@ export function Dashboard() {
     const { start, end, limitCount } = getDateRange(period);
     const isCurrentPeriod = period === 'this_month';
 
-    applyPendingTransactions(current.id)
+    (user?.uid ? ensureRecurringInstances(current.id, user.uid) : Promise.resolve())
+      .then(() => applyPendingTransactions(current.id))
       .then(() =>
         Promise.all([
           getAccounts(current.id),
           getTransactions(current.id, { start, end, limitCount }),
           isCurrentPeriod ? Promise.resolve([]) : getTransactionsUpToEnd(current.id, end),
-          getTransactions(current.id, { limitCount: 10 }),
+          getTransactions(current.id, { limitCount: 50 }),
           getCategories(current.id),
           getCreditCards(current.id),
         ])
       )
       .then(([accounts, txsPeriod, txsUpToEnd, txsRecent, cats, cards]) => {
         setCategories(cats);
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+        const endOfTodayTs = endOfToday.getTime();
+        const toDate = (t) => t.date?.getTime?.() ?? new Date(t.date).getTime();
+        const txsUpToToday = txsPeriod.filter((t) => toDate(t) <= endOfTodayTs);
+
         const total = isCurrentPeriod
           ? accounts.reduce((s, a) => s + toNumberReais(a.currentBalance ?? a.initialBalance), 0)
           : (txsUpToEnd?.length > 0
@@ -235,11 +246,11 @@ export function Dashboard() {
         setTotalBalance(total);
 
         const expenseFiltered = categoryFilter
-          ? txsPeriod.filter((t) => (t.type === 'expense' || t.type === 'investment') && t.categoryId === categoryFilter)
-          : txsPeriod;
+          ? txsUpToToday.filter((t) => (t.type === 'expense' || t.type === 'investment') && t.categoryId === categoryFilter)
+          : txsUpToToday;
 
         let income = 0;
-        txsPeriod.forEach((t) => {
+        txsUpToToday.forEach((t) => {
           const amt = toNumberReais(t.amount);
           if (t.type === 'income' || t.type === 'yield') income += amt;
         });
@@ -275,10 +286,26 @@ export function Dashboard() {
         setCardExpensesByCard(
           Object.entries(cardOnlyByCard).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
         );
-        setRecentTx(txsRecent.slice(0, 5));
+        const recentUpToToday = txsRecent.filter((t) => toDate(t) <= endOfTodayTs);
+        const recentSorted = [...recentUpToToday].sort((a, b) => (b.date?.getTime?.() ?? 0) - (a.date?.getTime?.() ?? 0));
+        const byGroup = {};
+        recentSorted.forEach((t) => {
+          const key = t.creditCardPurchaseId || t.id;
+          if (!byGroup[key]) byGroup[key] = [];
+          byGroup[key].push(t);
+        });
+        const onePerGroup = Object.values(byGroup).map((group) => {
+          if (group.length === 1) return group[0];
+          const byDate = [...group].sort((a, b) => (b.date?.getTime?.() ?? 0) - (a.date?.getTime?.() ?? 0));
+          const rep = byDate[0];
+          const baseDesc = (rep.description || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim() || 'Parcelado';
+          return { ...rep, description: `${baseDesc} (${group.length} parcelas)` };
+        });
+        const byDateDesc = onePerGroup.sort((a, b) => (b.date?.getTime?.() ?? 0) - (a.date?.getTime?.() ?? 0));
+        setRecentTx(byDateDesc.slice(0, 5));
 
         const balanceStart = total - income + expense;
-        const sorted = [...txsPeriod].sort((a, b) => (a.date?.getTime?.() ?? 0) - (b.date?.getTime?.() ?? 0));
+        const sorted = [...txsUpToToday].sort((a, b) => (a.date?.getTime?.() ?? 0) - (b.date?.getTime?.() ?? 0));
         const evolution = [{ date: format(start, 'dd/MM'), balance: balanceStart }];
         let running = balanceStart;
         sorted.forEach((t) => {
@@ -295,7 +322,7 @@ export function Dashboard() {
         let fixedExpenseTotal = 0;
         let healthExpense = 0;
         let healthCardTotal = 0;
-        txsPeriod.forEach((t) => {
+        txsUpToToday.forEach((t) => {
           const amt = toNumberReais(t.amount);
           const catName = cats.find((c) => c.id === t.categoryId)?.name || 'Outros';
           if (t.type === 'investment') {
@@ -310,7 +337,7 @@ export function Dashboard() {
         setHealthScore(health);
       })
       .finally(() => setLoading(false));
-  }, [current?.id, period, categoryFilter]);
+  }, [current?.id, period, categoryFilter, user?.uid]);
 
   if (loading) {
     return (
@@ -391,10 +418,10 @@ export function Dashboard() {
 
       {healthScore && (() => {
         const STATUS_CONFIG = {
-          critical: { label: 'Crítico', emoji: '🔴', bg: 'bg-rose-50/50', border: 'ring-rose-200/50', circle: 'stroke-rose-500', text: 'text-rose-700' },
-          attention: { label: 'Atenção', emoji: '🟡', bg: 'bg-amber-50/50', border: 'ring-amber-200/50', circle: 'stroke-amber-500', text: 'text-amber-700' },
-          healthy: { label: 'Saudável', emoji: '🟢', bg: 'bg-emerald-50/50', border: 'ring-emerald-200/50', circle: 'stroke-emerald-500', text: 'text-emerald-700' },
-          excellent: { label: 'Excelente', emoji: '🟣', bg: 'bg-violet-50/50', border: 'ring-violet-200/50', circle: 'stroke-violet-500', text: 'text-violet-700' },
+          critical: { label: 'Crítico', emoji: '🔴', circle: 'stroke-rose-500' },
+          attention: { label: 'Atenção', emoji: '🟡', circle: 'stroke-amber-500' },
+          healthy: { label: 'Saudável', emoji: '🟢', circle: 'stroke-emerald-500' },
+          excellent: { label: 'Excelente', emoji: '🟣', circle: 'stroke-violet-500' },
         };
         const config = STATUS_CONFIG[healthScore.status] || STATUS_CONFIG.attention;
         const insight = getHealthInsight(healthScore);
@@ -416,7 +443,7 @@ export function Dashboard() {
             <button
               type="button"
               onClick={handleToggle}
-              className={`card card-hover flex w-full items-center justify-between gap-4 p-4 ring-2 text-left ${config.bg} ${config.border}`}
+              className="card card-hover flex w-full items-center justify-between gap-4 p-4 text-left ring-1 ring-slate-200/50"
             >
               <div className="flex items-center gap-4">
                 <div className="relative h-14 w-14 shrink-0">
@@ -425,13 +452,13 @@ export function Dashboard() {
                     <circle cx="24" cy="24" r="18" fill="none" strokeWidth="5" strokeLinecap="round" className={config.circle} style={{ strokeDasharray: c, strokeDashoffset: off }} />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-lg font-bold tabular-nums text-slate-900">{healthScore.score}</span>
+                    <span className="text-lg font-semibold tabular-nums text-slate-800">{healthScore.score}</span>
                   </div>
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-lg">{config.emoji}</span>
-                    <span className="font-semibold text-slate-900">{config.label}</span>
+                    <span className="text-sm font-medium text-slate-700">{config.label}</span>
                   </div>
                   <div className="mt-1 flex gap-4 text-xs text-slate-500">
                     <span>Gasto {healthScore.metrics.pctExpense}%</span>
@@ -449,9 +476,9 @@ export function Dashboard() {
         }
 
         return (
-          <div className={`card overflow-hidden ring-2 ${config.bg} ${config.border}`}>
-            <div className="flex items-center justify-between px-8 pt-6">
-              <h2 className="text-lg font-semibold text-slate-900">Saúde financeira</h2>
+          <div className="card card-hover overflow-hidden p-6 ring-1 ring-slate-200/50 sm:p-8">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-slate-500">Saúde financeira</h2>
               <button
                 type="button"
                 onClick={handleToggle}
@@ -461,41 +488,38 @@ export function Dashboard() {
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
               </button>
             </div>
-            <div className="flex flex-col gap-8 p-8 pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-col items-start gap-6 sm:flex-row sm:items-center">
-                <div className="relative flex h-36 w-36 shrink-0">
-                  <svg className="h-36 w-36 -rotate-90" viewBox="0 0 120 120">
-                    <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" strokeWidth="10" className="text-slate-200" />
-                    <circle
-                      cx="60"
-                      cy="60"
-                      r="54"
-                      fill="none"
-                      strokeWidth="10"
-                      strokeLinecap="round"
-                      className={`${config.circle} transition-[stroke-dashoffset] duration-700 ease-out`}
-                      style={{ strokeDasharray: circumference, strokeDashoffset }}
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-3xl font-bold tabular-nums text-slate-900">{healthScore.score}</span>
-                    <span className="text-sm font-medium text-slate-500">/100</span>
-                  </div>
+            <div className="mt-6 flex flex-col gap-6 sm:flex-row sm:items-center">
+              <div className="relative flex h-32 w-32 shrink-0">
+                <svg className="h-32 w-32 -rotate-90" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" strokeWidth="10" className="text-slate-200" />
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="54"
+                    fill="none"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    className={`${config.circle} transition-[stroke-dashoffset] duration-700 ease-out`}
+                    style={{ strokeDasharray: circumference, strokeDashoffset }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-semibold tabular-nums text-slate-800">{healthScore.score}</span>
+                  <span className="text-xs text-slate-500">/100</span>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">{config.emoji}</span>
-                    <h2 className="text-xl font-bold text-slate-900">{config.label}</h2>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">Score combinado de gasto/renda, cartão, investido e despesas fixas.</p>
-                  <p className="mt-3 text-base text-slate-600">{insight.explanation}</p>
-                  <p className={`mt-2 text-sm font-medium ${config.text}`}>💡 {insight.recommendation}</p>
-                  <div className="mt-4 flex flex-wrap gap-4 text-sm">
-                    <span className="text-slate-500">Gasto/renda <strong className="text-slate-700">{healthScore.metrics.pctExpense}%</strong></span>
-                    <span className="text-slate-500">Cartão <strong className="text-slate-700">{healthScore.metrics.pctCard}%</strong></span>
-                    <span className="text-slate-500">Investido <strong className="text-slate-700">{healthScore.metrics.pctInvested}%</strong></span>
-                    <span className="text-slate-500">Fixas <strong className="text-slate-700">{healthScore.metrics.pctFixed}%</strong></span>
-                  </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{config.emoji}</span>
+                  <span className="text-sm font-medium text-slate-700">{config.label}</span>
+                </div>
+                <p className="mt-2 text-sm text-slate-600">{insight.explanation}</p>
+                <p className="mt-1.5 text-xs text-slate-500">{insight.recommendation}</p>
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                  <span>Gasto/renda {healthScore.metrics.pctExpense}%</span>
+                  <span>Cartão {healthScore.metrics.pctCard}%</span>
+                  <span>Investido {healthScore.metrics.pctInvested}%</span>
+                  <span>Fixas {healthScore.metrics.pctFixed}%</span>
                 </div>
               </div>
             </div>
@@ -561,17 +585,40 @@ export function Dashboard() {
       </div>
       {balanceEvolution.length > 0 && (
         <div className="card card-hover p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Evolução do saldo</h2>
-          <p className="mt-0.5 text-sm text-slate-500">Saldo ao longo do período</p>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Evolução do saldo</h2>
+              <p className="mt-0.5 text-sm text-slate-500">Saldo ao longo do período</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setExpandedChart('balance')}
+              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100/80 hover:text-slate-600"
+              title="Expandir gráfico"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+            </button>
+          </div>
           <div className="mt-6 h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={balanceEvolution} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+              <AreaChart data={balanceEvolution} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <defs>
+                  <linearGradient id="balanceArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#94a3b8" />
                 <YAxis tickFormatter={(v) => (v / 1000).toFixed(0) + 'k'} tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <Tooltip formatter={(value) => formatCurrency(value)} labelFormatter={(label) => label} />
+                <Tooltip
+                  formatter={(value) => [formatCurrency(value), 'Saldo']}
+                  labelFormatter={(label) => label}
+                  contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+                />
+                <Area type="monotone" dataKey="balance" fill="url(#balanceArea)" stroke="none" />
                 <Line type="monotone" dataKey="balance" stroke="#0ea5e9" strokeWidth={2} dot={{ fill: '#0ea5e9', r: 3 }} activeDot={{ r: 5 }} />
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -583,6 +630,16 @@ export function Dashboard() {
               <h2 className="text-lg font-semibold text-slate-900">Despesas por categoria</h2>
               <p className="mt-0.5 text-sm text-slate-500">{getPeriodLabel(period)}{categoryFilter ? ` · ${expenseCategories.find((c) => c.id === categoryFilter)?.name ?? 'Categoria'}` : ''}</p>
             </div>
+            {categoryData.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setExpandedChart('categories')}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100/80 hover:text-slate-600"
+                title="Expandir gráfico"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+              </button>
+            )}
           </div>
           {categoryData.length === 0 ? (
             <div className="mt-10 flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 py-14 text-slate-500">
@@ -592,27 +649,26 @@ export function Dashboard() {
               </Link>
             </div>
           ) : (
-            <div className="mt-6 h-72">
+            <div className="mt-6 h-72 min-h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={56}
-                    outerRadius={88}
-                    paddingAngle={2}
-                    dataKey="value"
-                    nameKey="name"
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  >
+                <BarChart data={categoryData} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                  <XAxis type="number" tickFormatter={(v) => (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v)} tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                  <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                  <Tooltip
+                    formatter={(value, name, props) => {
+                      const total = categoryData.reduce((s, d) => s + d.value, 0);
+                      const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+                      return [formatCurrency(value) + ` (${pct}%)`, props.payload?.name];
+                    }}
+                    contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+                  />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={28}>
                     {categoryData.map((_, i) => (
                       <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                     ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
-                  <Legend />
-                </PieChart>
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
             </div>
           )}
@@ -666,9 +722,21 @@ export function Dashboard() {
             <h2 className="text-lg font-semibold text-slate-900">Despesas no cartão</h2>
             <p className="mt-0.5 text-sm text-slate-500">Gastos no período (por categoria)</p>
           </div>
-          <Link to="/cartoes" className="text-sm font-semibold text-sky-600 transition hover:text-sky-700 hover:underline">
-            Cartões →
-          </Link>
+          <div className="flex items-center gap-2">
+            {cardExpensesTotal > 0 && (
+              <button
+                type="button"
+                onClick={() => setExpandedChart('card')}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100/80 hover:text-slate-600"
+                title="Expandir gráfico"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+              </button>
+            )}
+            <Link to="/cartoes" className="text-sm font-semibold text-sky-600 transition hover:text-sky-700 hover:underline">
+              Cartões →
+            </Link>
+          </div>
         </div>
         {cardExpensesTotal === 0 ? (
           <div className="mt-8 flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 py-14 text-slate-500">
@@ -698,14 +766,36 @@ export function Dashboard() {
                       <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
+                  <Tooltip
+                    formatter={(value) => {
+                      const total = cardExpensesByCategory.reduce((s, d) => s + d.value, 0);
+                      const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+                      return formatCurrency(value) + ` (${pct}%)`;
+                    }}
+                    contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+                  />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
             </div>
             <div>
               <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Resumo por cartão</p>
-              <ul className="space-y-2">
+              {cardExpensesByCard.length > 0 && (
+                <div className="h-48 min-h-[120px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={cardExpensesByCard} layout="vertical" margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
+                      <XAxis type="number" tickFormatter={(v) => (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v)} tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                      <YAxis type="category" dataKey="name" width={72} tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                      <Tooltip
+                        formatter={(value) => formatCurrency(value)}
+                        contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+                      />
+                      <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} maxBarSize={24} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <ul className="mt-3 space-y-2">
                 {cardExpensesByCard.map(({ name, value }) => (
                   <li key={name} className="flex items-center justify-between rounded-xl bg-slate-50/80 px-4 py-3 transition hover:bg-slate-100/80">
                     <span className="font-medium text-slate-800">{name}</span>
@@ -717,6 +807,112 @@ export function Dashboard() {
           </div>
         )}
       </div>
+
+      {expandedChart && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+          onClick={() => setExpandedChart(null)}
+        >
+          <div
+            className="flex h-[90vh] w-[90vw] max-w-[90vw] flex-col rounded-2xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
+              <h3 className="text-lg font-semibold text-slate-900">
+                {expandedChart === 'balance' && 'Evolução do saldo'}
+                {expandedChart === 'categories' && 'Despesas por categoria'}
+                {expandedChart === 'card' && 'Despesas no cartão'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setExpandedChart(null)}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                title="Fechar"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col p-6">
+              {expandedChart === 'balance' && balanceEvolution.length > 0 && (
+                <div className="h-full min-h-[300px] flex-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={balanceEvolution} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                      <defs>
+                        <linearGradient id="balanceAreaExpanded" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.25} />
+                          <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                      <YAxis tickFormatter={(v) => (v / 1000).toFixed(0) + 'k'} tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                      <Tooltip formatter={(value) => [formatCurrency(value), 'Saldo']} labelFormatter={(label) => label} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                      <Area type="monotone" dataKey="balance" fill="url(#balanceAreaExpanded)" stroke="none" />
+                      <Line type="monotone" dataKey="balance" stroke="#0ea5e9" strokeWidth={2} dot={{ fill: '#0ea5e9', r: 4 }} activeDot={{ r: 6 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {expandedChart === 'categories' && categoryData.length > 0 && (
+                <div className="h-full min-h-[300px] flex-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={categoryData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                      <XAxis type="number" tickFormatter={(v) => (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v)} tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                      <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 13 }} stroke="#94a3b8" />
+                      <Tooltip
+                        formatter={(value, name, props) => {
+                          const total = categoryData.reduce((s, d) => s + d.value, 0);
+                          const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+                          return [formatCurrency(value) + ` (${pct}%)`, props.payload?.name];
+                        }}
+                        contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+                      />
+                      <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={36}>
+                        {categoryData.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {expandedChart === 'card' && cardExpensesByCategory.length > 0 && (
+                <div className="flex h-full min-h-[300px] flex-1 items-center justify-center">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={cardExpensesByCategory}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="35%"
+                        outerRadius="55%"
+                        paddingAngle={2}
+                        dataKey="value"
+                        nameKey="name"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {cardExpensesByCategory.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value) => {
+                          const total = cardExpensesByCategory.reduce((s, d) => s + d.value, 0);
+                          const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+                          return formatCurrency(value) + ` (${pct}%)`;
+                        }}
+                        contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+                      />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
