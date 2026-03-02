@@ -23,6 +23,9 @@ import { ConfirmModal } from '../../../components/ui/ConfirmModal.jsx';
 import { TRANSACTION_TYPES } from '../../../models/transaction.js';
 import { formatCurrency, parseCurrency, formatCurrencyInput, numberToCurrencyInput } from '../../../utils/currency.js';
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths } from 'date-fns';
+import { parseBankStatementFile } from '../../../utils/parseBankStatement.js';
+import { parsePDF } from '../../../utils/parsePDF.js';
+import { suggestCategories } from '../../../utils/suggestCategories.js';
 
 const TYPE_LABELS = {
   [TRANSACTION_TYPES.income]: 'Entrada',
@@ -78,6 +81,62 @@ const TypeIcon = ({ type }) => {
   );
 };
 
+const IconTransactions = ({ className = '' }) => (
+  <svg className={`h-6 w-6 ${className}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+  </svg>
+);
+const IconUpload = () => (
+  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+  </svg>
+);
+const IconPlus = () => (
+  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+  </svg>
+);
+const IconCalendar = () => (
+  <svg className="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+);
+const IconTag = () => (
+  <svg className="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+  </svg>
+);
+const IconFilter = () => (
+  <svg className="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+  </svg>
+);
+const IconSearch = () => (
+  <svg className="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+  </svg>
+);
+const IconWallet = ({ className = 'text-slate-500' }) => (
+  <svg className={`h-5 w-5 ${className}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+  </svg>
+);
+const IconFile = ({ className = 'text-slate-300' }) => (
+  <svg className={`h-12 w-12 ${className}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+);
+const IconSparkles = () => (
+  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+  </svg>
+);
+const IconImport = () => (
+  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+  </svg>
+);
+
 const RECURRENCE_OPTIONS = [
   { value: 'weekly', label: 'Semanal' },
   { value: 'monthly', label: 'Mensal' },
@@ -125,6 +184,16 @@ export function Transactions() {
   const [createStep, setCreateStep] = useState(1);
   const createIntentRef = useRef(false);
   const [expandedInstallmentGroups, setExpandedInstallmentGroups] = useState(() => new Set());
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importParsed, setImportParsed] = useState(null);
+  const [importAccountId, setImportAccountId] = useState('');
+  const [importTargetAccountId, setImportTargetAccountId] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importSuggesting, setImportSuggesting] = useState(false);
+  const [importSuggestProgress, setImportSuggestProgress] = useState({ current: 0, total: 0 });
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!current?.id) return;
@@ -165,6 +234,165 @@ export function Transactions() {
     setCreateStep(1);
     createIntentRef.current = false;
     setModalOpen(true);
+  };
+
+  const handleOpenImportModal = () => {
+    setImportError('');
+    setImportFile(null);
+    setImportParsed(null);
+    setImportAccountId(accounts[0]?.id ?? '');
+    setImportTargetAccountId('');
+    setImportModalOpen(true);
+  };
+
+  const handleImportFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    setImportError('');
+    setImportParsed(null);
+    setImportFile(file || null);
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    const isPdf = name.endsWith('.pdf');
+    if (isPdf) {
+      const arrayBuffer = await file.arrayBuffer();
+      try {
+        const result = await parsePDF(arrayBuffer);
+        if (result.success) {
+          setImportParsed(result);
+          if (!importAccountId && accounts[0]?.id) setImportAccountId(accounts[0].id);
+        } else {
+          setImportError(result.error || 'Não foi possível ler o PDF.');
+        }
+      } catch (err) {
+        setImportError(err.message || 'Erro ao processar o PDF.');
+      }
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result || '';
+      const result = parseBankStatementFile(file.name, text);
+      if (result.success) {
+        setImportParsed(result);
+        if (!importAccountId && accounts[0]?.id) setImportAccountId(accounts[0].id);
+      } else {
+        setImportError(result.error || 'Não foi possível ler o arquivo.');
+      }
+    };
+    reader.onerror = () => setImportError('Erro ao ler o arquivo.');
+    reader.readAsText(file, 'ISO-8859-1');
+  };
+
+  const handleImportSuggestCategories = async () => {
+    if (!importParsed?.transactions?.length || importSuggesting) return;
+    setImportError('');
+    setImportSuggesting(true);
+    setImportSuggestProgress({ current: 0, total: importParsed.transactions.length });
+    try {
+      const expenseCats = categories.filter((c) => c.type === 'expense').map((c) => ({ id: c.id, name: c.name }));
+      const incomeCats = categories.filter((c) => c.type === 'income').map((c) => ({ id: c.id, name: c.name }));
+      const enriched = await suggestCategories(
+        importParsed.transactions,
+        { expense: expenseCats, income: incomeCats },
+        { onProgress: (current, total) => setImportSuggestProgress({ current, total }) }
+      );
+      setImportParsed((prev) => (prev ? { ...prev, transactions: enriched } : null));
+    } catch (err) {
+      setImportError(err.message || 'Erro ao sugerir categorias com IA.');
+    } finally {
+      setImportSuggesting(false);
+      setImportSuggestProgress({ current: 0, total: 0 });
+    }
+  };
+
+  const setImportRowCategory = (index, categoryId) => {
+    setImportParsed((prev) => {
+      if (!prev?.transactions?.length) return prev;
+      const next = [...prev.transactions];
+      next[index] = { ...next[index], categoryId: categoryId || undefined };
+      return { ...prev, transactions: next };
+    });
+  };
+
+  const setImportRowDescription = (index, description) => {
+    setImportParsed((prev) => {
+      if (!prev?.transactions?.length) return prev;
+      const next = [...prev.transactions];
+      next[index] = { ...next[index], description: description ?? '' };
+      return { ...prev, transactions: next };
+    });
+  };
+
+  const setImportRowType = (index, type) => {
+    setImportParsed((prev) => {
+      if (!prev?.transactions?.length) return prev;
+      const next = [...prev.transactions];
+      next[index] = { ...next[index], type: type || undefined, categoryId: undefined, suggestedCategoryId: undefined };
+      return { ...prev, transactions: next };
+    });
+  };
+
+  const setImportRowAmount = (index, valueStr) => {
+    const amount = parseCurrency(valueStr);
+    setImportParsed((prev) => {
+      if (!prev?.transactions?.length) return prev;
+      const next = [...prev.transactions];
+      next[index] = { ...next[index], amount: amount };
+      return { ...prev, transactions: next };
+    });
+  };
+
+  const setImportRowDate = (index, dateStr) => {
+    if (!dateStr) return;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return;
+    setImportParsed((prev) => {
+      if (!prev?.transactions?.length) return prev;
+      const next = [...prev.transactions];
+      next[index] = { ...next[index], date: d };
+      return { ...prev, transactions: next };
+    });
+  };
+
+  const handleImportSubmit = async () => {
+    if (!importParsed?.transactions?.length || !importAccountId || !current?.id || !user?.uid) {
+      setImportError('Selecione a conta e um arquivo de extrato válido.');
+      return;
+    }
+    setImporting(true);
+    setImportError('');
+    try {
+      for (const row of importParsed.transactions) {
+        const type = row.type ?? (row.amount >= 0 ? TRANSACTION_TYPES.income : TRANSACTION_TYPES.expense);
+        const amount = Math.abs(Number(row.amount)) || 0;
+        if (amount <= 0) continue;
+        const categoryId = row.categoryId ?? row.suggestedCategoryId ?? undefined;
+        const targetAccountId = type === TRANSACTION_TYPES.transfer ? importTargetAccountId || undefined : undefined;
+        if (type === TRANSACTION_TYPES.transfer && !targetAccountId) {
+          setImportError('Para transferências, selecione a conta de destino.');
+          setImporting(false);
+          return;
+        }
+        await createTransaction(current.id, user.uid, {
+          type,
+          amount,
+          accountId: importAccountId,
+          targetAccountId,
+          categoryId,
+          description: row.description || undefined,
+          date: row.date,
+        });
+      }
+      setImportModalOpen(false);
+      setImportFile(null);
+      setImportParsed(null);
+      await refresh();
+    } catch (err) {
+      setImportError(err.message || 'Erro ao importar transações.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const isExpenseType = form.type === 'expense' || form.type === 'investment';
@@ -669,21 +897,36 @@ export function Transactions() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-slate-800">Transações</h2>
-        <Button onClick={handleOpenModal} disabled={accounts.length === 0}>
-          Nova transação
-        </Button>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-white shadow-sm">
+              <IconTransactions className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">Transações</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Entradas, saídas, transferências e investimentos. Vincule despesas ao cartão quando quiser.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={handleOpenImportModal} disabled={accounts.length === 0} title="Importar extrato CSV, OFX ou PDF do banco" className="inline-flex items-center gap-2">
+            <IconUpload />
+            Importar extrato
+          </Button>
+          <Button onClick={handleOpenModal} disabled={accounts.length === 0} className="inline-flex items-center gap-2">
+            <IconPlus />
+            Nova transação
+          </Button>
+        </div>
       </div>
 
-      <p className="mb-4 text-slate-600">
-        Registre entradas, saídas, transferências, investimentos e rendimentos. Vincule despesas ao cartão quando quiser.
-      </p>
-
       {accounts.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4 transition-all duration-300 ease-out">
+        <div className="mb-6 flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 transition-all duration-300 ease-out">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-600">Período:</span>
+            <IconCalendar />
             <Select
               value={periodFilter}
               onChange={setPeriodFilter}
@@ -692,7 +935,7 @@ export function Transactions() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-600">Categoria:</span>
+            <IconTag />
             <Select
               value={categoryFilter}
               onChange={setCategoryFilter}
@@ -701,7 +944,7 @@ export function Transactions() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-600">Tipo:</span>
+            <IconFilter />
             <Select
               value={typeFilter}
               onChange={setTypeFilter}
@@ -710,19 +953,22 @@ export function Transactions() {
             />
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center">
+              <span className="pointer-events-none absolute left-3 text-slate-400">
+                <IconSearch />
+              </span>
               <label htmlFor="tx-search" className="sr-only">Buscar por nome ou descrição</label>
               <Input
                 id="tx-search"
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar por nome ou descrição"
-                className="min-w-[200px] max-w-[280px]"
+                placeholder="Buscar..."
+                className="min-w-[200px] max-w-[280px] pl-10"
               />
             </div>
-            <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200/60">
-              <span className="text-sm font-medium text-slate-600">Total (filtro):</span>
+            <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-4 py-2.5 ring-1 ring-slate-200/60">
+              <IconWallet className="text-slate-500" />
               <span className={`font-semibold tabular-nums ${totalFiltered >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                 {totalFiltered >= 0 ? '+' : ''}{formatCurrency(totalFiltered)}
               </span>
@@ -755,20 +1001,43 @@ export function Transactions() {
           </div>
         </div>
       ) : accounts.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-amber-50/50 p-8 text-center text-slate-600">
-          Crie pelo menos uma <strong>conta</strong> na aba Contas para poder registrar transações.
+        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-amber-200 bg-amber-50/60 px-8 py-12 text-center">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+            <IconWallet className="text-amber-700" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-800">Nenhuma conta</h3>
+          <p className="mt-2 max-w-sm text-slate-600">
+            Crie pelo menos uma <strong>conta</strong> na aba Contas para poder registrar transações.
+          </p>
         </div>
       ) : transactions.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center text-slate-500">
-          Nenhuma transação. Clique em <strong>Nova transação</strong> para registrar.
+        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 px-8 py-12 text-center">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-200/80 text-slate-600">
+            <IconTransactions className="text-slate-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-800">Nenhuma transação</h3>
+          <p className="mt-2 max-w-sm text-slate-600">
+            Clique em <strong>Nova transação</strong> para registrar sua primeira entrada ou saída.
+          </p>
+          <Button onClick={handleOpenModal} className="mt-4 inline-flex items-center gap-2">
+            <IconPlus />
+            Nova transação
+          </Button>
         </div>
       ) : filteredDisplayItems.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center text-slate-500">
-          Nenhuma transação corresponde aos filtros. Tente outro período, categoria, tipo ou busca.
+        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 px-8 py-12 text-center">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-200/80 text-slate-600">
+            <IconFilter />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-800">Nenhum resultado</h3>
+          <p className="mt-2 max-w-sm text-slate-600">
+            Nenhuma transação corresponde aos filtros. Tente outro período, categoria, tipo ou busca.
+          </p>
         </div>
       ) : (
         <div className="card overflow-hidden">
-          <div className="border-b border-slate-100 bg-slate-50/50 px-4 py-3 md:px-6">
+          <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-3 md:px-6">
+            <IconTransactions className="text-slate-500" />
             <p className="text-sm font-medium text-slate-600">
               {filteredDisplayItems.length} {filteredDisplayItems.length === 1 ? 'transação' : 'transações'}
               {(categoryFilter || typeFilter || periodFilter !== 'all' || searchQuery.trim()) && ' (filtradas)'}
@@ -985,6 +1254,184 @@ export function Transactions() {
         variant="danger"
         loading={saving}
       />
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.txt,.ofx,.pdf"
+        className="hidden"
+        onChange={handleImportFileChange}
+        aria-label="Selecionar arquivo de extrato"
+      />
+      <Modal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        title={
+          <span className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-sky-600">
+              <IconUpload />
+            </span>
+            Importar extrato bancário
+          </span>
+        }
+        contentClassName="max-w-6xl min-h-[70vh]"
+      >
+        <div className="space-y-5 min-w-0">
+          <p className="text-sm text-slate-600">
+            Selecione um arquivo de extrato (CSV, OFX ou PDF) exportado do seu banco. Opcionalmente, use a IA para sugerir categorias antes de importar.
+          </p>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className={`w-full rounded-2xl border-2 border-dashed p-8 text-center transition-all ${
+              importFile
+                ? 'border-sky-200 bg-sky-50/50 hover:border-sky-300'
+                : 'border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-100/50'
+            }`}
+          >
+            {importFile ? (
+              <span className="flex items-center justify-center gap-2 text-sky-700">
+                <IconFile className="text-sky-500" />
+                <span className="font-medium">{importFile.name || 'Arquivo selecionado'}</span>
+              </span>
+            ) : (
+              <span className="flex flex-col items-center gap-2 text-slate-500">
+                <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60">
+                  <IconUpload />
+                </span>
+                <span className="font-medium text-slate-600">Clique ou arraste o arquivo aqui</span>
+                <span className="text-xs">CSV, OFX ou PDF</span>
+              </span>
+            )}
+          </button>
+          {importParsed?.transactions?.length > 0 && (
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex-1 min-w-[180px]">
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Conta para importar</label>
+                  <Select
+                    value={importAccountId}
+                    onChange={setImportAccountId}
+                    options={(accounts || []).map((a) => ({ value: a.id, label: a.name }))}
+                    placeholder="Selecione a conta"
+                  />
+                </div>
+                {importParsed?.transactions?.some((r) => r.type === TRANSACTION_TYPES.transfer) && (
+                  <div className="min-w-[180px]">
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Conta destino (transferências)</label>
+                    <Select
+                      value={importTargetAccountId}
+                      onChange={setImportTargetAccountId}
+                      options={(accounts || []).filter((a) => a.id !== importAccountId).map((a) => ({ value: a.id, label: a.name }))}
+                      placeholder="Selecione"
+                    />
+                  </div>
+                )}
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleImportSuggestCategories}
+                    disabled={importSuggesting || categories.length === 0}
+                    title="Usa IA gratuita (Transformers.js) no navegador. Na primeira vez o modelo é baixado (~25 MB)."
+                    className="inline-flex items-center gap-2"
+                  >
+                    <IconSparkles />
+                    {importSuggesting
+                      ? `Sugerindo... ${importSuggestProgress.current}/${importSuggestProgress.total}`
+                      : 'Sugerir categorias com IA'}
+                  </Button>
+                </div>
+              </div>
+              <div className="min-h-[320px] max-h-[65vh] overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white shadow-inner">
+                <table className="w-full min-w-0 table-fixed text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-100">
+                    <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                      <th className="w-28 px-3 py-2">Data</th>
+                      <th className="px-3 py-2">Descrição</th>
+                      <th className="w-32 px-3 py-2">Tipo</th>
+                      <th className="w-40 px-3 py-2">Categoria</th>
+                      <th className="w-28 shrink-0 px-3 py-2 text-right">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {importParsed.transactions.map((row, idx) => {
+                      const rowType = row.type ?? ((row.amount || 0) >= 0 ? TRANSACTION_TYPES.income : TRANSACTION_TYPES.expense);
+                      const isIncome = rowType === TRANSACTION_TYPES.income || rowType === TRANSACTION_TYPES.yield;
+                      const catOptions = (isIncome ? incomeCategories : expenseCategories).map((c) => ({ value: c.id, label: c.name }));
+                      const currentCategoryId = row.categoryId ?? row.suggestedCategoryId ?? '';
+                      const dateStr = row.date ? format(row.date instanceof Date ? row.date : new Date(row.date), 'yyyy-MM-dd') : '';
+                      return (
+                        <tr key={idx}>
+                          <td className="px-3 py-1.5">
+                            <Input
+                              type="date"
+                              value={dateStr}
+                              onChange={(e) => setImportRowDate(idx, e.target.value)}
+                              className="w-full min-w-0 text-sm"
+                            />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <Input
+                              value={row.description ?? ''}
+                              onChange={(e) => setImportRowDescription(idx, e.target.value)}
+                              placeholder="Descrição"
+                              className="w-full min-w-0 text-sm"
+                            />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <Select
+                              value={rowType}
+                              onChange={(v) => setImportRowType(idx, v)}
+                              options={Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }))}
+                              className="w-full min-w-0 text-xs"
+                            />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <Select
+                              value={currentCategoryId}
+                              onChange={(v) => setImportRowCategory(idx, v)}
+                              options={[{ value: '', label: '—' }, ...catOptions]}
+                              className="w-full min-w-0 text-xs"
+                            />
+                          </td>
+                          <td className="shrink-0 px-3 py-1.5">
+                            <CurrencyInput
+                              value={numberToCurrencyInput(row.amount ?? 0)}
+                              onChange={(v) => setImportRowAmount(idx, v)}
+                              placeholder="0,00"
+                              className="text-sm text-right"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-slate-500">
+                {importParsed.transactions.length} transação(ões) encontrada(s). Categorias sugeridas pela IA podem ser alteradas antes de importar.
+              </p>
+            </>
+          )}
+          {importError && <p className="text-sm text-red-600">{importError}</p>}
+          <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+            <Button type="button" variant="secondary" onClick={() => setImportModalOpen(false)} disabled={importing}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleImportSubmit}
+              disabled={!importParsed?.transactions?.length || !importAccountId || importing}
+              className="inline-flex items-center gap-2"
+            >
+              <IconImport />
+              {importing ? 'Importando...' : `Importar ${importParsed?.transactions?.length ?? 0} transação(ões)`}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

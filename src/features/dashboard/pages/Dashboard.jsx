@@ -11,7 +11,7 @@ import { Select } from '../../../components/ui/Select.jsx';
 import { formatCurrency } from '../../../utils/currency.js';
 import { startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, LineChart, Line, Area, AreaChart, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, LineChart, Line, Area, AreaChart, XAxis, YAxis, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 
 const CHART_COLORS = ['#0ea5e9', '#38bdf8', '#7dd3fc', '#06b6d4', '#22d3ee', '#67e8f9', '#6366f1', '#818cf8', '#a5b4fc', '#c4b5fd'];
 
@@ -22,6 +22,51 @@ const TYPE_LABELS = {
   investment: 'Investimento',
   yield: 'Rendimento',
 };
+
+const ACCOUNT_TYPE_LABELS = {
+  bank: 'Banco',
+  digital_wallet: 'Carteira digital',
+  cash: 'Dinheiro',
+  investment: 'Investimento',
+};
+
+const ACCOUNT_TYPE_STYLE = {
+  bank: { label: 'Banco', icon: 'bank', bg: 'from-sky-500 to-sky-600', ring: 'ring-sky-100' },
+  digital_wallet: { label: 'Carteira digital', icon: 'wallet', bg: 'from-emerald-500 to-emerald-600', ring: 'ring-emerald-100' },
+  cash: { label: 'Dinheiro', icon: 'cash', bg: 'from-amber-500 to-amber-600', ring: 'ring-amber-100' },
+  investment: { label: 'Investimento', icon: 'chart', bg: 'from-violet-500 to-violet-600', ring: 'ring-violet-100' },
+};
+
+function AccountIcon({ type }) {
+  const style = ACCOUNT_TYPE_STYLE[type] || ACCOUNT_TYPE_STYLE.bank;
+  const base = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm';
+  if (type === 'bank') {
+    return (
+      <div className={`${base} ${style.bg}`}>
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+      </div>
+    );
+  }
+  if (type === 'digital_wallet') {
+    return (
+      <div className={`${base} ${style.bg}`}>
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+      </div>
+    );
+  }
+  if (type === 'cash') {
+    return (
+      <div className={`${base} ${style.bg}`}>
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+      </div>
+    );
+  }
+  return (
+    <div className={`${base} ${style.bg}`}>
+      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+    </div>
+  );
+}
 
 const PERIOD_OPTIONS = [
   { value: 'this_month', label: 'Este mês' },
@@ -202,6 +247,8 @@ export function Dashboard() {
   const [categories, setCategories] = useState([]);
   const [balanceEvolution, setBalanceEvolution] = useState([]);
   const [healthScore, setHealthScore] = useState(null);
+  const [accountsList, setAccountsList] = useState([]);
+  const [monthByMonthData, setMonthByMonthData] = useState([]);
   const [healthCardCollapsed, setHealthCardCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem('finance-health-card-collapsed');
@@ -220,17 +267,21 @@ export function Dashboard() {
 
     (user?.uid ? ensureRecurringInstances(current.id, user.uid) : Promise.resolve())
       .then(() => applyPendingTransactions(current.id))
-      .then(() =>
-        Promise.all([
+      .then(() => {
+        const now = new Date();
+        const start12 = startOfMonth(subMonths(now, 11));
+        const end12 = endOfMonth(now);
+        return Promise.all([
           getAccounts(current.id),
           getTransactions(current.id, { start, end, limitCount }),
           isCurrentPeriod ? Promise.resolve([]) : getTransactionsUpToEnd(current.id, end),
           getTransactions(current.id, { limitCount: 50 }),
           getCategories(current.id),
           getCreditCards(current.id),
-        ])
-      )
-      .then(([accounts, txsPeriod, txsUpToEnd, txsRecent, cats, cards]) => {
+          getTransactions(current.id, { start: start12, end: end12, limitCount: 1200 }),
+        ]);
+      })
+      .then(([accounts, txsPeriod, txsUpToEnd, txsRecent, cats, cards, txs12Months]) => {
         setCategories(cats);
         const endOfToday = new Date();
         endOfToday.setHours(23, 59, 59, 999);
@@ -244,6 +295,7 @@ export function Dashboard() {
               ? computeBalanceAtEnd(accounts, txsUpToEnd)
               : accounts.reduce((s, a) => s + toNumberReais(a.currentBalance ?? a.initialBalance), 0));
         setTotalBalance(total);
+        setAccountsList(accounts);
 
         const expenseFiltered = categoryFilter
           ? txsUpToToday.filter((t) => (t.type === 'expense' || t.type === 'investment') && t.categoryId === categoryFilter)
@@ -335,6 +387,27 @@ export function Dashboard() {
         });
         const health = computeHealthScore(income, healthExpense, healthCardTotal, investmentTotal, fixedExpenseTotal);
         setHealthScore(health);
+
+        const txs12UpToToday = (txs12Months || []).filter((t) => toDate(t) <= endOfTodayTs);
+        const byMonth = {};
+        txs12UpToToday.forEach((t) => {
+          const d = t.date instanceof Date ? t.date : new Date(t.date);
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          if (!byMonth[key]) byMonth[key] = { monthKey: key, income: 0, expense: 0 };
+          const amt = toNumberReais(t.amount);
+          if (t.type === 'income' || t.type === 'yield') byMonth[key].income += amt;
+          else if (t.type === 'expense' || t.type === 'investment') byMonth[key].expense += amt;
+        });
+        const monthByMonth = Object.keys(byMonth)
+          .sort()
+          .map((k) => {
+            const [y, m] = k.split('-');
+            const monthLabel = format(new Date(Number(y), Number(m) - 1, 1), 'MMM/yy', { locale: ptBR });
+            const row = byMonth[k];
+            const balance = row.income - row.expense;
+            return { ...row, month: monthLabel, balance };
+          });
+        setMonthByMonthData(monthByMonth);
       })
       .finally(() => setLoading(false));
   }, [current?.id, period, categoryFilter, user?.uid]);
@@ -583,6 +656,55 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {accountsList.length > 0 && (() => {
+        const totalAccounts = accountsList.reduce(
+          (s, a) => s + toNumberReais(a.currentBalance ?? a.initialBalance ?? 0),
+          0
+        );
+        return (
+          <div className="card card-hover overflow-hidden p-6 ring-1 ring-slate-200/50">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Suas contas</h2>
+                <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+                  {formatCurrency(totalAccounts)}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">Saldo total nas {accountsList.length} conta{accountsList.length !== 1 ? 's' : ''}</p>
+              </div>
+              <Link
+                to="/contas"
+                className="shrink-0 text-sm font-semibold text-sky-600 transition hover:text-sky-700 hover:underline"
+              >
+                Ver contas →
+              </Link>
+            </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {accountsList.map((acc) => {
+                const balance = toNumberReais(acc.currentBalance ?? acc.initialBalance ?? 0);
+                const style = ACCOUNT_TYPE_STYLE[acc.type] || ACCOUNT_TYPE_STYLE.bank;
+                return (
+                  <Link
+                    key={acc.id}
+                    to="/contas"
+                    className={`flex items-center gap-4 rounded-xl border border-slate-200/60 bg-white p-4 shadow-sm ring-1 ring-slate-200/30 transition hover:shadow-md hover:ring-slate-300/50 ${style.ring}`}
+                  >
+                    <AccountIcon type={acc.type} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-slate-800">{acc.name}</p>
+                      <p className="text-xs text-slate-500">{style.label}</p>
+                    </div>
+                    <span className="shrink-0 text-right font-semibold tabular-nums text-slate-900">
+                      {formatCurrency(balance)}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {balanceEvolution.length > 0 && (
         <div className="card card-hover p-6">
           <div className="flex items-start justify-between gap-2">
@@ -623,6 +745,56 @@ export function Dashboard() {
           </div>
         </div>
       )}
+
+      {monthByMonthData.length > 0 && (
+        <div className="card card-hover p-6">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Resultado mês a mês</h2>
+              <p className="mt-0.5 text-sm text-slate-500">Diferença receitas − despesas por mês (últimos 12 meses)</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setExpandedChart('monthly')}
+              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100/80 hover:text-slate-600"
+              title="Expandir gráfico"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+            </button>
+          </div>
+          <div className="mt-6 h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthByMonthData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                <YAxis tickFormatter={(v) => (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v < -1000 ? (v / 1000).toFixed(1) + 'k' : v)} tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const p = payload[0].payload;
+                    return (
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                        <p className="font-medium text-slate-800">{label}</p>
+                        <p className="text-xs text-slate-500">Receitas: {formatCurrency(p.income)} · Despesas: {formatCurrency(p.expense)}</p>
+                        <p className={`mt-1 font-semibold tabular-nums ${p.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          Resultado: {formatCurrency(p.balance)}
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="balance" name="Resultado" maxBarSize={40} radius={[4, 4, 4, 4]}>
+                  {monthByMonthData.map((entry, i) => (
+                    <Cell key={i} fill={entry.balance >= 0 ? '#10b981' : '#f43f5e'} />
+                  ))}
+                </Bar>
+                <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="2 2" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="card card-hover p-6 lg:col-span-2">
           <div className="flex items-baseline justify-between gap-4">
@@ -820,6 +992,7 @@ export function Dashboard() {
             <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
               <h3 className="text-lg font-semibold text-slate-900">
                 {expandedChart === 'balance' && 'Evolução do saldo'}
+                {expandedChart === 'monthly' && 'Resultado mês a mês'}
                 {expandedChart === 'categories' && 'Despesas por categoria'}
                 {expandedChart === 'card' && 'Despesas no cartão'}
               </h3>
@@ -850,6 +1023,36 @@ export function Dashboard() {
                       <Area type="monotone" dataKey="balance" fill="url(#balanceAreaExpanded)" stroke="none" />
                       <Line type="monotone" dataKey="balance" stroke="#0ea5e9" strokeWidth={2} dot={{ fill: '#0ea5e9', r: 4 }} activeDot={{ r: 6 }} />
                     </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {expandedChart === 'monthly' && monthByMonthData.length > 0 && (
+                <div className="h-full min-h-[300px] flex-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={monthByMonthData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                      <YAxis tickFormatter={(v) => (v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v < -1000 ? (v / 1000).toFixed(1) + 'k' : v)} tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const p = payload[0].payload;
+                          return (
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                              <p className="font-medium text-slate-800">{label}</p>
+                              <p className="text-xs text-slate-500">Receitas: {formatCurrency(p.income)} · Despesas: {formatCurrency(p.expense)}</p>
+                              <p className={`mt-1 font-semibold tabular-nums ${p.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>Resultado: {formatCurrency(p.balance)}</p>
+                            </div>
+                          );
+                        }}
+                      />
+                      <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="2 2" />
+                      <Bar dataKey="balance" name="Resultado" maxBarSize={48} radius={[4, 4, 4, 4]}>
+                        {monthByMonthData.map((entry, i) => (
+                          <Cell key={i} fill={entry.balance >= 0 ? '#10b981' : '#f43f5e'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               )}
